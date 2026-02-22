@@ -1,45 +1,63 @@
 export default function Home() {
   return (
-    <main style={{
-      minHeight: "100vh",
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      alignItems: "center",
-      background: "linear-gradient(135deg, #0f172a, #1e293b)",
-      color: "white",
-      fontFamily: "Arial"
-    }}>
-      
-      <h1 style={{
-        fontSize: "48px",
-        fontWeight: "bold",
-        marginBottom: "20px"
-      }}>
-        WICU 🚀
+    <main
+      style={{
+        background: "#0B0F19",
+        color: "white",
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        textAlign: "center",
+        padding: "40px",
+      }}
+    >
+      <h1
+        style={{
+          fontSize: "60px",
+          marginBottom: "10px",
+          letterSpacing: "4px",
+        }}
+      >
+        WICU
       </h1>
 
-      <p style={{
-        fontSize: "20px",
-        marginBottom: "30px",
-        opacity: 0.8
-      }}>
-        Tienda inteligente del futuro
+      <h2
+        style={{
+          fontSize: "28px",
+          color: "#00F0FF",
+          marginBottom: "20px",
+        }}
+      >
+        Eleva tu nivel
+      </h2>
+
+      <p
+        style={{
+          maxWidth: "600px",
+          color: "#9CA3AF",
+          marginBottom: "30px",
+        }}
+      >
+        Tecnología premium diseñada para potenciar tu estilo de vida
+        inteligente.
       </p>
 
-      <button style={{
-        padding: "12px 24px",
-        fontSize: "16px",
-        borderRadius: "8px",
-        border: "none",
-        backgroundColor: "#38bdf8",
-        color: "#0f172a",
-        fontWeight: "bold",
-        cursor: "pointer"
-      }}>
-        Explorar Productos
+      <button
+        style={{
+          background: "#00F0FF",
+          color: "#0B0F19",
+          border: "none",
+          padding: "15px 30px",
+          fontSize: "16px",
+          borderRadius: "8px",
+          cursor: "pointer",
+          fontWeight: "bold",
+        }}
+      >
+        Explorar Gadgets
       </button>
-
     </main>
   );
 }
