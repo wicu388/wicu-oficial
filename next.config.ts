@@ -1,16 +1,17 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // 🔥 MODO ESTRICTO REACT
+
+  // 🔥 REACT ESTRICTO
   reactStrictMode: true,
 
-  // 🔥 COMPRESIÓN GENERAL
+  // 🔥 COMPRESIÓN
   compress: true,
 
-  // 🔥 POWERED BY OFF
+  // 🔥 OCULTAR POWERED BY
   poweredByHeader: false,
 
-  // 🔥 OPTIMIZACIÓN TURBO
+  // 🔥 TURBO COMPILER
   compiler: {
     removeConsole:
       process.env.NODE_ENV === "production"
@@ -21,53 +22,103 @@ const nextConfig: NextConfig = {
   },
 
   images: {
-    // 🔥 DOMINIOS PREMIUM DROPSHIPPING + MARKETPLACE
-    domains: [
-      // Unsplash
-      "images.unsplash.com",
 
-      // AliExpress / Alibaba
-      "ae-pic-a1.aliexpress-media.com",
-      "ae01.alicdn.com",
-      "gloimg.alicdn.com",
+    // 🔥 NUEVO SISTEMA NEXT 16
+    remotePatterns: [
+
+      // Unsplash
+      {
+        protocol: "https",
+        hostname: "images.unsplash.com",
+      },
+
+      // AliExpress
+      {
+        protocol: "https",
+        hostname: "ae-pic-a1.aliexpress-media.com",
+      },
+      {
+        protocol: "https",
+        hostname: "ae01.alicdn.com",
+      },
+      {
+        protocol: "https",
+        hostname: "gloimg.alicdn.com",
+      },
 
       // CJ Dropshipping
-      "cjdropshipping.com",
-      "img.cjdropshipping.com",
+      {
+        protocol: "https",
+        hostname: "cjdropshipping.com",
+      },
+      {
+        protocol: "https",
+        hostname: "img.cjdropshipping.com",
+      },
 
-      // Shopify CDN
-      "cdn.shopify.com",
+      // Shopify
+      {
+        protocol: "https",
+        hostname: "cdn.shopify.com",
+      },
 
       // Amazon
-      "m.media-amazon.com",
-      "images-na.ssl-images-amazon.com",
+      {
+        protocol: "https",
+        hostname: "m.media-amazon.com",
+      },
+      {
+        protocol: "https",
+        hostname: "images-na.ssl-images-amazon.com",
+      },
 
       // Cloudinary
-      "res.cloudinary.com",
+      {
+        protocol: "https",
+        hostname: "res.cloudinary.com",
+      },
 
       // Imgur
-      "i.imgur.com",
+      {
+        protocol: "https",
+        hostname: "i.imgur.com",
+      },
 
       // Picsum
-      "picsum.photos",
+      {
+        protocol: "https",
+        hostname: "picsum.photos",
+      },
 
       // Pexels
-      "images.pexels.com",
+      {
+        protocol: "https",
+        hostname: "images.pexels.com",
+      },
 
-      // Freepik CDN
-      "img.freepik.com",
+      // Freepik
+      {
+        protocol: "https",
+        hostname: "img.freepik.com",
+      },
 
-      // Temu CDN (algunas imágenes)
-      "img.kwcdn.com",
+      // Temu CDN
+      {
+        protocol: "https",
+        hostname: "img.kwcdn.com",
+      },
 
-      // eBay CDN
-      "i.ebayimg.com",
+      // eBay
+      {
+        protocol: "https",
+        hostname: "i.ebayimg.com",
+      },
     ],
 
-    // ⚡ FORMATOS ULTRA RÁPIDOS
+    // 🔥 FORMATOS MODERNOS
     formats: ["image/avif", "image/webp"],
 
-    // ⚡ TAMAÑOS RESPONSIVE MARKETPLACE
+    // 🔥 RESPONSIVE MARKETPLACE
     deviceSizes: [
       320,
       420,
@@ -79,7 +130,7 @@ const nextConfig: NextConfig = {
       1920,
     ],
 
-    // ⚡ MINIATURAS + GALERÍAS
+    // 🔥 MINIATURAS
     imageSizes: [
       16,
       32,
@@ -91,40 +142,36 @@ const nextConfig: NextConfig = {
       384,
     ],
 
-    // ⚡ CACHE AGRESIVO
-    minimumCacheTTL: 60 * 60 * 24 * 30, // 30 días
+    // 🔥 CACHE
+    minimumCacheTTL: 60 * 60 * 24 * 30,
 
-    // ⚡ PERMITE FUTURAS OPTIMIZACIONES IA
+    // 🔥 SVG
     dangerouslyAllowSVG: true,
 
-    // ⚡ SEGURIDAD SVG
+    // 🔥 SEGURIDAD
     contentSecurityPolicy:
       "default-src 'self'; script-src 'none'; sandbox;",
   },
 
-  // 🔥 OPTIMIZACIÓN GENERAL
-  swcMinify: true,
-
   experimental: {
-    // ⚡ CSS MÁS RÁPIDO
-    optimizeCss: true,
 
-    // ⚡ SCROLL RESTORE APP STYLE
+    // 🔥 RESTAURAR SCROLL
     scrollRestoration: true,
 
-    // ⚡ OPTIMIZACIÓN IMPORTS
+    // 🔥 IMPORTS OPTIMIZADOS
     optimizePackageImports: [
       "lucide-react",
       "react-icons",
     ],
   },
 
-  // 🔥 HEADERS DE RENDIMIENTO
+  // 🔥 HEADERS CACHE
   async headers() {
     return [
       {
         source: "/:all*(svg|jpg|jpeg|png|webp|avif)",
         locale: false,
+
         headers: [
           {
             key: "Cache-Control",
