@@ -16,6 +16,12 @@ type DatosEntrada = {
   productos: ItemEntrada[];
 };
 
+type ResultadoReserva = {
+  ok?: boolean;
+  pedidoId?: string;
+  subtotal?: number;
+};
+
 function precioNumerico(valor: unknown): number | null {
   if (typeof valor === "number") {
     return Number.isFinite(valor) && valor >= 0 ? valor : null;
@@ -101,13 +107,23 @@ export async function POST(request: Request) {
         );
       }
 
-      cantidades.set(id, (cantidades.get(id) ?? 0) + cantidad);
+      const total = (cantidades.get(id) ?? 0) + cantidad;
+
+      if (total > 99) {
+        return NextResponse.json(
+          { error: "La cantidad máxima por producto es 99." },
+          { status: 400 }
+        );
+      }
+
+      cantidades.set(id, total);
     }
 
     const supabase = createClient(url, secret, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
+        detectSessionInUrl: false,
       },
     });
 
@@ -115,7 +131,7 @@ export async function POST(request: Request) {
 
     const { data: productosDB, error: errorProductos } = await supabase
       .from("productos")
-      .select("id,nombre,precio,activo,stock")
+      .select("id,nombre,precio,activo,origen")
       .in("id", ids);
 
     if (errorProductos || !productosDB || productosDB.length !== ids.length) {
@@ -140,20 +156,30 @@ export async function POST(request: Request) {
       }
 
       if (
-        producto.stock !== null &&
-        producto.stock !== undefined &&
-        Number(producto.stock) < cantidad
+        !["propio", "dropshipping", "tercero"].includes(
+          producto.origen ?? ""
+        )
       ) {
         return NextResponse.json(
-          { error: `No hay existencias suficientes de ${producto.nombre}.` },
+          {
+            error:
+              `El origen de ${producto.nombre} todavía no está definido.`,
+          },
           { status: 409 }
         );
       }
 
       const precio = precioNumerico(producto.precio);
-      const importe = precio === null ? null : precio * cantidad;
 
-      if (importe !== null) subtotal += importe;
+      if (precio === null) {
+        return NextResponse.json(
+          { error: `El precio de ${producto.nombre} no es válido.` },
+          { status: 409 }
+        );
+      }
+
+      const importe = precio * cantidad;
+      subtotal += importe;
 
       productosPedido.push({
         id: producto.id,
@@ -164,33 +190,56 @@ export async function POST(request: Request) {
       });
     }
 
-    const { data: pedido, error: errorPedido } = await supabase
-      .from("pedidos")
-      .insert({
-        nombre,
-        celular,
-        ciudad,
-        direccion,
-        productos: productosPedido,
-        subtotal,
-        estado: "pendiente",
-        estado_pago: "pendiente",
-      })
-      .select("id")
-      .single();
+    // La función SQL registra el pedido y reserva el inventario
+    // dentro de una sola transacción.
+    const { data, error } = await supabase.rpc(
+      "crear_pedido_con_reserva",
+      {
+        p_nombre: nombre,
+        p_celular: celular,
+        p_ciudad: ciudad,
+        p_direccion: direccion,
+        p_productos: productosPedido,
+        p_subtotal: subtotal,
+      }
+    );
 
-    if (errorPedido || !pedido) {
-      console.error("Error al registrar pedido:", errorPedido?.message);
+    if (error) {
+      console.error("Error al registrar pedido con reserva:", error.message);
+
+      const mensaje = error.message.toLowerCase();
+
+      if (
+        mensaje.includes("existencias") ||
+        mensaje.includes("inventario") ||
+        mensaje.includes("disponible") ||
+        mensaje.includes("origen")
+      ) {
+        return NextResponse.json(
+          { error: error.message },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json(
         { error: "No se pudo registrar el pedido. Inténtalo nuevamente." },
         { status: 500 }
       );
     }
 
+    const resultado = data as ResultadoReserva | null;
+
+    if (!resultado?.ok || !resultado.pedidoId) {
+      return NextResponse.json(
+        { error: "No se recibió una confirmación válida del pedido." },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       ok: true,
-      pedidoId: pedido.id,
-      subtotal,
+      pedidoId: resultado.pedidoId,
+      subtotal: resultado.subtotal ?? subtotal,
     });
   } catch {
     return NextResponse.json(
