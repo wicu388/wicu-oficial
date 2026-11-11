@@ -1,6 +1,8 @@
 
 "use client";
 
+import ProductCard from "../components/ProductCard";
+
 import { useEffect, useMemo, useState } from "react";
 import {
   Search,
@@ -29,6 +31,8 @@ import {
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import { siteConfig } from "../lib/siteConfig";
+import BrandLogo from "../components/BrandLogo";
+import Footer from "../components/Footer";
 
 type Producto = {
   id: number | string;
@@ -47,6 +51,13 @@ type Producto = {
 };
 
 type Carrito = Record<string, number>;
+
+type DatosCliente = {
+  nombre: string;
+  celular: string;
+  ciudad: string;
+  direccion: string;
+};
 
 const WHATSAPP = siteConfig.brand.whatsapp;
 const STORAGE_KEY = "wicu-cart-v1";
@@ -158,7 +169,7 @@ function enlaceWhatsApp(mensaje: string): string {
   return `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(mensaje)}`;
 }
 
-function ImagenProducto({ producto }: { producto: Producto }) {
+function ImagenProducto({ producto, portada = false }: { producto: Producto; portada?: boolean }) {
   const imagenes = obtenerImagenes(producto);
   const [indice, setIndice] = useState(0);
   const [fallo, setFallo] = useState(false);
@@ -171,13 +182,13 @@ function ImagenProducto({ producto }: { producto: Producto }) {
   const imagen = imagenes[indice];
 
   return (
-    <div className="group/image relative aspect-[5/4] overflow-hidden rounded-xl bg-[#f3f5f8]">
+    <div className={`group/image relative ${portada ? "aspect-[4/5] rounded-lg" : "aspect-[5/4] rounded-xl"} overflow-hidden bg-[#f3f5f8]`}>
       {imagen && !fallo ? (
         <img
           src={imagen}
           alt={nombreProducto(producto)}
           loading="lazy"
-          className="h-full w-full object-contain p-2 transition-transform duration-300 group-hover/image:scale-105 sm:p-4"
+          className={`h-full w-full transition-transform duration-300 group-hover/image:scale-105 ${portada ? "scale-110 object-cover p-0 sm:scale-110" : "object-contain p-2 sm:p-4"}`}
           onError={() => {
             if (indice + 1 < imagenes.length) {
               setIndice((actual) => actual + 1);
@@ -207,6 +218,7 @@ function ImagenProducto({ producto }: { producto: Producto }) {
 export default function Home() {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [busqueda, setBusqueda] = useState("");
+  const [sugerenciasAbiertas, setSugerenciasAbiertas] = useState(false);
   const [categoriaActiva, setCategoriaActiva] = useState("Todas");
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState("");
@@ -214,6 +226,14 @@ export default function Home() {
   const [carritoAbierto, setCarritoAbierto] = useState(false);
   const [carrito, setCarrito] = useState<Carrito>({});
   const [carritoListo, setCarritoListo] = useState(false);
+  const [pedidoEnviando, setPedidoEnviando] = useState(false);
+  const [errorPedido, setErrorPedido] = useState("");
+  const [datosCliente, setDatosCliente] = useState<DatosCliente>({
+    nombre: "",
+    celular: "",
+    ciudad: "",
+    direccion: "",
+  });
 
   useEffect(() => {
     try {
@@ -285,6 +305,30 @@ export default function Home() {
   }, []);
 
   const categoriasDisponibles = useMemo(() => CATEGORIAS, []);
+
+  const sugerencias = useMemo(() => {
+    const consulta = normalizarTexto(busqueda);
+
+    if (consulta.length < 2) return [];
+
+    return productos
+      .filter((producto) => {
+        const texto = normalizarTexto(
+          [
+            producto.nombre,
+            producto.descripcion,
+            producto["descripción"],
+            producto.categoria,
+            producto.etiquetas,
+          ]
+            .filter(Boolean)
+            .join(" ")
+        );
+
+        return texto.includes(consulta);
+      })
+      .slice(0, 5);
+  }, [busqueda, productos]);
 
   const filtrados = useMemo(() => {
     const consulta = normalizarTexto(busqueda);
@@ -389,63 +433,99 @@ export default function Home() {
     window.open(enlaceWhatsApp(mensaje), "_blank", "noopener,noreferrer");
   }
 
-  function solicitarPedido() {
-    const lineas = productosCarrito.map(({ producto, cantidad }) => {
-      return `• ${nombreProducto(producto)} x${cantidad} — ${formatoPrecio(
-        producto.precio
-      )}`;
-    });
+  async function solicitarPedido() {
+    if (pedidoEnviando || productosCarrito.length === 0) return;
 
-    const mensaje = [
-      "Hola, WICU. Quiero consultar este pedido:",
-      "",
-      ...lineas,
-      "",
-      `Subtotal de precios confirmados: ${formatoPrecio(subtotal)}`,
-      hayPreciosPendientes
-        ? "Hay productos pendientes de confirmar su precio."
-        : "",
-      "",
-      "Por favor, confirmen disponibilidad, envío y total final.",
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const nombre = datosCliente.nombre.trim();
+    const celular = datosCliente.celular.trim();
+    const ciudad = datosCliente.ciudad.trim();
+    const direccion = datosCliente.direccion.trim();
 
-    window.open(enlaceWhatsApp(mensaje), "_blank", "noopener,noreferrer");
+    if (!nombre || !celular || !ciudad || !direccion) {
+      setErrorPedido("Completa los cuatro datos del comprador.");
+      return;
+    }
+
+    setErrorPedido("");
+    const ventana = window.open("about:blank", "_blank");
+
+    setPedidoEnviando(true);
+
+    try {
+      const respuesta = await fetch("/api/pedidos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nombre,
+          celular,
+          ciudad,
+          direccion,
+          productos: productosCarrito.map(({ producto, cantidad }) => ({
+            id: producto.id,
+            cantidad,
+          })),
+        }),
+      });
+
+      const resultado = await respuesta.json();
+
+      if (!respuesta.ok || !resultado.pedidoId) {
+        throw new Error(resultado.error || "No se pudo registrar el pedido.");
+      }
+
+      const lineas = productosCarrito.map(({ producto, cantidad }) => {
+        const precio = precioNumerico(producto.precio);
+        const importe = precio === null ? null : precio * cantidad;
+
+        return [
+          `Producto: ${nombreProducto(producto)}`,
+          `Referencia: ${producto.id}`,
+          `Cantidad: ${cantidad}`,
+          `Precio unitario: ${formatoPrecio(producto.precio)}`,
+          `Importe: ${importe === null ? "Pendiente de confirmar" : formatoPrecio(importe)}`,
+        ].join("\n");
+      });
+
+      const mensaje = [
+        "Hola, WICU. Quiero solicitar este pedido:",
+        "",
+        `REFERENCIA DEL PEDIDO: ${resultado.pedidoId}`,
+        "",
+        "DATOS DEL COMPRADOR",
+        `Nombre: ${nombre}`,
+        `Celular: ${celular}`,
+        `Ciudad: ${ciudad}`,
+        `Dirección de entrega: ${direccion}`,
+        "",
+        "DETALLE DEL PEDIDO",
+        ...lineas.flatMap((linea) => [linea, ""]),
+        `Subtotal de precios confirmados: ${formatoPrecio(resultado.subtotal)}`,
+        hayPreciosPendientes
+          ? "IMPORTANTE: Hay productos cuyo precio está pendiente de confirmación."
+          : "",
+        "",
+        "Por favor, confirmen disponibilidad, envío y total definitivo.",
+        "Gracias.",
+      ].filter(Boolean).join("\n");
+
+      const destino = enlaceWhatsApp(mensaje);
+
+      if (ventana) {
+        ventana.location.href = destino;
+      } else {
+        window.location.href = destino;
+      }
+    } catch (error) {
+      if (ventana) ventana.close();
+      setErrorPedido(
+        error instanceof Error
+          ? error.message
+          : "No se pudo registrar el pedido. Inténtalo nuevamente."
+      );
+    } finally {
+      setPedidoEnviando(false);
+    }
   }
-
-  const redes = [
-    {
-      nombre: "Facebook",
-      href: siteConfig.social.facebook,
-      icono: MessageCircle,
-    },
-    {
-      nombre: "Instagram",
-      href: siteConfig.social.instagram,
-      icono: Heart,
-    },
-    {
-      nombre: "TikTok",
-      href: siteConfig.social.tiktok,
-      icono: Music2,
-    },
-    {
-      nombre: "Pinterest",
-      href: siteConfig.social.pinterest,
-      icono: Pin,
-    },
-    {
-      nombre: "YouTube",
-      href: siteConfig.social.youtube,
-      icono: ArrowUpRight,
-    },
-    {
-      nombre: "WhatsApp",
-      href: siteConfig.social.whatsapp,
-      icono: MessageCircle,
-    },
-  ];
 
   return (
     <main className="wicu-scene relative min-h-screen overflow-x-hidden bg-[#070b14] text-white">
@@ -470,31 +550,47 @@ export default function Home() {
             {menuMovil ? <X size={19} /> : <Menu size={19} />}
           </button>
 
-          <a href="#" className="group flex shrink-0 items-center gap-2.5 sm:gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-100/60 bg-gradient-to-br from-white via-cyan-200 to-blue-500 text-xl font-black text-slate-950 shadow-[0_0_22px_rgba(34,211,238,0.22)] transition duration-300 group-hover:shadow-[0_0_30px_rgba(34,211,238,0.38)] sm:h-11 sm:w-11 sm:rounded-2xl sm:text-2xl">
-              W
-            </span>
-            <span
-              className="relative isolate text-[1.55rem] font-black italic leading-none tracking-[-0.065em] sm:text-4xl"
-              style={{
-                backgroundImage: "linear-gradient(180deg, #ffffff 0%, #dffaff 16%, #69e7ff 34%, #f8fdff 48%, #399bff 68%, #bcefff 82%, #ffffff 100%)",
-                backgroundClip: "text",
-                WebkitBackgroundClip: "text",
-                color: "transparent",
-                WebkitTextStroke: "0.45px rgba(210,248,255,0.85)",
-                filter: "drop-shadow(0 1px 0 #236caa) drop-shadow(0 3px 0 #123c70) drop-shadow(0 5px 0 #081c3b) drop-shadow(0 0 9px rgba(34,211,238,0.65)) drop-shadow(0 0 22px rgba(37,99,235,0.35))",
-              }}
+          <a
+              href="#"
+              aria-label="WICU, inicio"
+              className="group flex shrink-0 items-center"
             >
-              WICU<span className="ml-0.5 not-italic text-cyan-200">.</span>
-            </span>
-          </a>
+              <BrandLogo barsVariant="stepped" className="h-[48px] sm:h-[58px]" />
+            </a>
 
-          <div className="mx-auto hidden max-w-2xl flex-1 md:block">
+          <div className="relative mx-auto hidden max-w-2xl flex-1 md:block">
             <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.045] px-4 transition focus-within:border-cyan-300/70 focus-within:bg-white/[0.07]">
-              <Search className="shrink-0 text-cyan-200" size={18} />
+              <button
+                type="button"
+                onClick={() => {
+                  setSugerenciasAbiertas(false);
+                  document.getElementById("productos")?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "start",
+                  });
+                }}
+                aria-label="Ejecutar búsqueda"
+                className="shrink-0 text-cyan-200 transition hover:text-white"
+              >
+                <Search size={18} />
+              </button>
               <input
                 value={busqueda}
-                onChange={(event) => setBusqueda(event.target.value)}
+                onChange={(event) => {
+                  setBusqueda(event.target.value);
+                  setSugerenciasAbiertas(true);
+                }}
+                onFocus={() => setSugerenciasAbiertas(true)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    setSugerenciasAbiertas(false);
+                    document.getElementById("productos")?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "start",
+                    });
+                  }
+                }}
                 placeholder="Busca productos, marcas o categorías"
                 aria-label="Buscar productos"
                 className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
@@ -502,7 +598,10 @@ export default function Home() {
               {busqueda && (
                 <button
                   type="button"
-                  onClick={() => setBusqueda("")}
+                  onClick={() => {
+                    setBusqueda("");
+                    setSugerenciasAbiertas(false);
+                  }}
                   aria-label="Limpiar búsqueda"
                   className="text-slate-300 hover:text-white"
                 >
@@ -510,6 +609,57 @@ export default function Home() {
                 </button>
               )}
             </label>
+{sugerenciasAbiertas && sugerencias.length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-cyan-300/25 bg-[#0b1423] shadow-[0_18px_45px_rgba(0,0,0,0.55)]">
+                <p className="border-b border-white/10 px-3 py-2 text-[9px] font-bold uppercase tracking-[0.16em] text-cyan-300">
+                  Productos sugeridos
+                </p>
+                {sugerencias.map((producto) => {
+                  const imagen = obtenerImagenes(producto)[0];
+
+                  return (
+                    <button
+                      key={producto.id}
+                      type="button"
+                      onClick={() => {
+                        setBusqueda(nombreProducto(producto));
+                        setSugerenciasAbiertas(false);
+                        document.getElementById("productos")?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        });
+                      }}
+                      className="flex w-full items-center gap-3 border-b border-white/[0.07] px-3 py-2 text-left transition last:border-b-0 hover:bg-cyan-300/[0.08]"
+                    >
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/[0.06]">
+                        {imagen ? (
+                          <img
+                            src={imagen}
+                            alt=""
+                            loading="lazy"
+                            className="h-full w-full object-contain p-1"
+                          />
+                        ) : (
+                          <Package size={20} className="text-slate-400" />
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-bold text-white">
+                          {nombreProducto(producto)}
+                        </span>
+                        <span className="mt-1 block truncate text-[10px] text-cyan-300">
+                          {producto.categoria || "WICU"}
+                        </span>
+                        <span className="mt-0.5 block text-xs font-extrabold text-slate-200">
+                          {formatoPrecio(producto.precio)}
+                        </span>
+                      </span>
+                      <ChevronRight size={16} className="shrink-0 text-cyan-300" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <button
@@ -526,12 +676,39 @@ export default function Home() {
           </button>
         </div>
 
-        <div className="px-3 pb-3 md:hidden">
+        <div className="relative px-3 pb-3 md:hidden">
           <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.045] px-3">
-            <Search size={17} className="text-cyan-200" />
+            <button
+              type="button"
+              onClick={() => {
+                setSugerenciasAbiertas(false);
+                document.getElementById("productos")?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "start",
+                });
+              }}
+              aria-label="Ejecutar búsqueda"
+              className="shrink-0 text-cyan-200 transition hover:text-white"
+            >
+              <Search size={17} />
+            </button>
             <input
               value={busqueda}
-              onChange={(event) => setBusqueda(event.target.value)}
+              onChange={(event) => {
+                setBusqueda(event.target.value);
+                setSugerenciasAbiertas(true);
+              }}
+              onFocus={() => setSugerenciasAbiertas(true)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    setSugerenciasAbiertas(false);
+                    document.getElementById("productos")?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "start",
+                    });
+                  }
+                }}
               placeholder="Buscar productos..."
               aria-label="Buscar productos"
               className="h-10 w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
@@ -539,13 +716,67 @@ export default function Home() {
             {busqueda && (
               <button
                 type="button"
-                onClick={() => setBusqueda("")}
+                onClick={() => {
+                    setBusqueda("");
+                    setSugerenciasAbiertas(false);
+                  }}
                 aria-label="Limpiar búsqueda"
               >
                 <X size={16} />
               </button>
             )}
           </label>
+{sugerenciasAbiertas && sugerencias.length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-cyan-300/25 bg-[#0b1423] shadow-[0_18px_45px_rgba(0,0,0,0.55)]">
+                <p className="border-b border-white/10 px-3 py-2 text-[9px] font-bold uppercase tracking-[0.16em] text-cyan-300">
+                  Productos sugeridos
+                </p>
+                {sugerencias.map((producto) => {
+                  const imagen = obtenerImagenes(producto)[0];
+
+                  return (
+                    <button
+                      key={producto.id}
+                      type="button"
+                      onClick={() => {
+                        setBusqueda(nombreProducto(producto));
+                        setSugerenciasAbiertas(false);
+                        document.getElementById("productos")?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        });
+                      }}
+                      className="flex w-full items-center gap-3 border-b border-white/[0.07] px-3 py-2 text-left transition last:border-b-0 hover:bg-cyan-300/[0.08]"
+                    >
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/[0.06]">
+                        {imagen ? (
+                          <img
+                            src={imagen}
+                            alt=""
+                            loading="lazy"
+                            className="h-full w-full object-contain p-1"
+                          />
+                        ) : (
+                          <Package size={20} className="text-slate-400" />
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-bold text-white">
+                          {nombreProducto(producto)}
+                        </span>
+                        <span className="mt-1 block truncate text-[10px] text-cyan-300">
+                          {producto.categoria || "WICU"}
+                        </span>
+                        <span className="mt-0.5 block text-xs font-extrabold text-slate-200">
+                          {formatoPrecio(producto.precio)}
+                        </span>
+                      </span>
+                      <ChevronRight size={16} className="shrink-0 text-cyan-300" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
         </div>
 
         {menuMovil && (
@@ -568,57 +799,88 @@ export default function Home() {
         )}
       </header>
 
-      <section className="mx-auto max-w-[1600px] px-3 pb-2 pt-2 sm:px-6 sm:pb-3 sm:pt-3 lg:px-10">
-        <div className="relative isolate overflow-hidden rounded-2xl border border-cyan-200/15 bg-[#0b1220] shadow-[0_18px_55px_rgba(0,0,0,0.22)] sm:rounded-3xl">
-          <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_78%_20%,rgba(34,211,238,0.16),transparent_34%),radial-gradient(ellipse_at_100%_100%,rgba(37,99,235,0.18),transparent_42%)]" />
-          <div className="pointer-events-none absolute right-[-3rem] top-[-5rem] -z-10 h-48 w-48 rounded-full border border-cyan-200/[0.09] sm:right-8 sm:top-[-7rem] sm:h-72 sm:w-72" />
-          <div className="pointer-events-none absolute right-[-1rem] top-[-3rem] -z-10 h-36 w-36 rounded-full border border-blue-300/[0.08] sm:right-16 sm:top-[-5rem] sm:h-56 sm:w-56" />
+      <section className="mx-auto max-w-[1600px] px-3 pb-4 pt-3 sm:px-6 sm:pb-6 lg:px-10">
+        <div className="relative isolate overflow-hidden rounded-[1.5rem] border border-cyan-200/20 bg-[#060b16] shadow-[0_25px_90px_rgba(0,0,0,0.42)] sm:rounded-[2rem]">
+          <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_15%_10%,rgba(34,211,238,0.19),transparent_36%),radial-gradient(ellipse_at_88%_55%,rgba(37,99,235,0.23),transparent_42%),linear-gradient(125deg,#07111f_0%,#0a1222_55%,#080d19_100%)]" />
+          <div className="pointer-events-none absolute -right-20 -top-24 -z-10 h-64 w-64 rounded-full border border-cyan-200/10 sm:h-96 sm:w-96" />
+          <div className="pointer-events-none absolute right-8 top-10 -z-10 h-40 w-40 rounded-full border border-blue-200/[0.09] sm:right-24 sm:top-14 sm:h-64 sm:w-64" />
 
-          <div className="grid items-center gap-3 px-4 py-4 sm:gap-5 sm:px-6 sm:py-5 lg:grid-cols-[1fr_auto] lg:gap-6 lg:px-8 lg:py-6">
-            <div className="max-w-3xl">
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-cyan-200/20 bg-cyan-200/[0.06] px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.14em] text-cyan-200">
-                <Sparkles size={13} />
-                WICU · Tecnología y estilo
+          <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-7 lg:p-7">
+            <div className="relative min-w-0">
+              <div className="pointer-events-none absolute inset-4 rounded-[2rem] bg-cyan-300/10 blur-3xl" />
+              {productos.length > 0 ? (
+                <div className="relative grid grid-cols-3 items-stretch gap-2 sm:gap-3">
+                  {productos.slice(0, 3).map((producto) => (
+                    <a
+                      key={producto.id}
+                      href="#productos"
+                      className="group flex min-h-full min-w-0 flex-col overflow-hidden rounded-xl border border-white/10 bg-white/[0.06] p-1.5 shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition duration-300 hover:-translate-y-1 hover:border-cyan-200/40 sm:rounded-2xl sm:p-2.5"
+                    >
+                      <div className="overflow-hidden rounded-lg bg-white">
+                        <ImagenProducto producto={producto} portada />
+                      </div>
+                      <div className="flex flex-1 flex-col px-0.5 pb-1 pt-2">
+                        <h2 className="line-clamp-2 text-[10px] font-extrabold leading-snug text-white sm:text-xs">
+                          {nombreProducto(producto)}
+                        </h2>
+                        <p className="mt-auto break-words pt-2 text-[10px] font-black text-cyan-100 sm:text-sm">
+                          {formatoPrecio(producto.precio)}
+                        </p>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex min-h-40 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] p-5 text-center">
+                  <Package size={30} className="text-cyan-200" />
+                  <p className="mt-3 text-sm font-extrabold text-white">
+                    {cargando ? "Preparando tu vitrina" : "Estamos preparando el catálogo"}
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-slate-300">
+                    {errorCarga || "Descubre los productos WICU en nuestra sección de catálogo."}
+                  </p>
+                  <a href="#productos" className="mt-3 text-xs font-bold text-cyan-200 hover:text-white">
+                    Ir al catálogo <ArrowUpRight size={14} className="inline" />
+                  </a>
+                </div>
+              )}
+            </div>
+
+            <div className="relative z-10 lg:py-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-200/25 bg-cyan-100/[0.07] px-3 py-1.5 text-[9px] font-extrabold uppercase tracking-[0.16em] text-cyan-100 sm:text-[10px]">
+                <Sparkles size={14} />
+                WICU · Descubre algo extraordinario
               </div>
 
-              <h1 className="mt-2 text-2xl font-black leading-tight tracking-tight text-white sm:text-3xl lg:text-4xl">
-                Todo lo que imaginas.
-                <span className="block bg-gradient-to-r from-cyan-200 via-sky-300 to-blue-400 bg-clip-text text-transparent">
-                  Un mundo por descubrir.
+              <h1 className="mt-3 text-3xl font-black leading-[0.98] tracking-[-0.045em] text-white sm:text-4xl lg:text-5xl xl:text-6xl">
+                Eleva tu mundo.
+                <span className="mt-1 block bg-gradient-to-r from-cyan-200 via-sky-300 to-blue-400 bg-clip-text pb-1 text-transparent">
+                  Descubre WICU.
                 </span>
               </h1>
 
-              <p className="mt-2 max-w-xl text-xs leading-[1.4rem] text-slate-300 sm:text-sm sm:leading-5">
-                Tecnología, hogar, moda y mucho más, en un solo lugar. Explora y encuentra lo que va contigo.
+              <p className="mt-3 max-w-lg text-xs leading-5 text-slate-300 sm:text-sm sm:leading-6">
+                Tecnología, hogar y nuevos favoritos en un solo lugar. Encuentra productos que hacen cada día más extraordinario.
               </p>
 
-              <div className="mt-3 flex flex-wrap items-center gap-2.5">
+              <div className="mt-4 flex flex-wrap gap-2">
                 <a
                   href="#productos"
-                  className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-cyan-300 to-sky-300 px-3.5 py-2 text-xs font-extrabold text-slate-950 shadow-[0_4px_16px_rgba(34,211,238,0.14)] transition hover:-translate-y-0.5 hover:brightness-110"
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-300 to-sky-300 px-4 py-2.5 text-xs font-black text-slate-950 shadow-[0_8px_30px_rgba(34,211,238,0.22)] transition duration-200 hover:-translate-y-0.5 hover:brightness-110"
                 >
-                  Explorar productos <ArrowUpRight size={17} />
+                  Explorar productos <ArrowUpRight size={16} />
                 </a>
                 <a
                   href="#categorias"
-                  className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.03] px-3 py-2 text-xs font-bold text-slate-200 transition hover:border-cyan-200/30 hover:bg-white/[0.06]"
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.045] px-4 py-2.5 text-xs font-bold text-white transition hover:border-cyan-200/40 hover:bg-white/[0.08]"
                 >
-                  Ver categorías <ChevronRight size={16} />
+                  Ver categorías <ChevronRight size={15} />
                 </a>
               </div>
-            </div>
 
-            <div className="flex items-center gap-3 border-t border-white/[0.12] pt-4 lg:min-w-48 lg:flex-col lg:items-start lg:justify-center lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-cyan-200/20 bg-cyan-200/[0.07] text-cyan-200 sm:h-12 sm:w-12">
-                <Package size={23} />
-              </div>
-              <div>
-                <p className="text-2xl font-black tracking-tight text-white sm:text-3xl">
-                  {productos.length}
-                </p>
-                <p className="mt-0.5 text-[10px] font-semibold text-slate-300 sm:text-xs">
-                  productos en el catálogo
-                </p>
+              <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-white/10 pt-3 text-[10px] font-semibold text-slate-300 sm:text-xs">
+                <span className="inline-flex items-center gap-2"><ShieldCheck size={15} className="text-cyan-200" /> Compra con confianza</span>
+                <span className="inline-flex items-center gap-2"><Package size={15} className="text-cyan-200" /> {productos.length} productos en catálogo</span>
               </div>
             </div>
           </div>
@@ -668,7 +930,7 @@ export default function Home() {
 
       <section
         id="productos"
-        className="mx-auto max-w-[1600px] scroll-mt-28 px-3 pb-8 sm:px-6 lg:px-10"
+        className="mx-auto max-w-[1600px] scroll-mt-28 px-3 pb-4 sm:px-6 lg:px-10"
       >
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
@@ -736,50 +998,22 @@ export default function Home() {
         ) : filtrados.length > 0 ? (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             {filtrados.map((producto) => (
-              <article
+              <ProductCard
                 key={producto.id}
-                className="group relative min-w-0 overflow-hidden rounded-2xl border border-white/[0.14] bg-gradient-to-b from-[#111b2c] to-[#0a101c] p-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.16)] transition duration-300 hover:-translate-y-1 hover:border-cyan-200/40 hover:shadow-[0_12px_35px_rgba(8,145,178,0.12)] sm:p-2"
-              >
-                <ImagenProducto producto={producto} />
-
-                <div className="px-0.5 pb-1 pt-1.5 sm:px-1 sm:pt-2">
-                  <p className="truncate text-[9px] font-extrabold uppercase tracking-[0.14em] text-cyan-300 sm:text-[10px]">
-                    {producto.categoria || "WICU"}
-                  </p>
-
-                  <h3 className="mt-1.5 min-h-10 line-clamp-2 text-[12px] font-bold leading-[1.2rem] text-slate-100 sm:text-sm sm:leading-5">
-                    {nombreProducto(producto)}
-                  </h3>
-
-                  <p className="mt-1 min-h-6 text-base font-black tracking-tight text-white sm:text-lg">
-                    {formatoPrecio(producto.precio)}
-                  </p>
-
-                  {(producto.descripcion || producto["descripción"]) && (
-                    <p className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-slate-300">
-                      {String(producto.descripcion || producto["descripción"])}
-                    </p>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => agregarCarrito(producto.id)}
-                    className="mt-2 flex min-h-9 w-full items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-cyan-300 to-sky-300 px-2 py-1.5 text-[10px] font-extrabold text-slate-950 shadow-[0_4px_16px_rgba(34,211,238,0.10)] transition hover:brightness-110 sm:text-xs"
-                  >
-                    <ShoppingCart size={14} />
-                    Añadir al carrito
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => consultarProducto(producto)}
-                    className="mt-1.5 flex min-h-8 w-full items-center justify-center gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.02] px-2 py-1.5 text-[10px] font-bold text-slate-300 transition hover:border-cyan-200/40 hover:bg-cyan-200/[0.04] hover:text-cyan-200 sm:text-[11px]"
-                  >
-                    <MessageCircle size={13} />
-                    Consultar
-                  </button>
-                </div>
-              </article>
+                id={producto.id}
+                nombre={nombreProducto(producto)}
+                categoria={producto.categoria || "WICU"}
+                precio={formatoPrecio(producto.precio)}
+                descripcion={
+                  producto.descripcion || producto["descripción"]
+                    ? String(producto.descripcion || producto["descripción"])
+                    : undefined
+                }
+                imagenes={obtenerImagenes(producto)}
+                destacado={producto.destacado === true}
+                onAgregar={agregarCarrito}
+                onConsultar={() => consultarProducto(producto)}
+              />
             ))}
           </div>
         ) : (
@@ -830,7 +1064,7 @@ export default function Home() {
 
       <section className="relative overflow-hidden border-y border-cyan-200/10 bg-gradient-to-br from-[#0b1424] via-[#0a101c] to-[#101a30]">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(34,211,238,0.08),transparent_60%)]" />
-        <div className="relative mx-auto grid max-w-[1600px] gap-3 px-4 py-6 sm:grid-cols-2 sm:px-6 sm:py-8 lg:grid-cols-4 lg:px-10">
+        <div className="relative mx-auto grid max-w-[1600px] gap-3 px-4 py-4 sm:grid-cols-2 sm:px-6 sm:py-5 lg:grid-cols-4 lg:px-10">
           <div className="rounded-2xl border border-white/[0.12] bg-white/[0.025] p-4 transition-colors hover:border-cyan-200/20">
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-200/20 bg-cyan-300/[0.08] text-cyan-200">
               <MessageCircle size={20} />
@@ -896,73 +1130,7 @@ export default function Home() {
         </div>
       </section>
 
-      <footer className="mx-auto max-w-[1600px] px-4 pb-6 pt-7 sm:px-6 sm:pt-9 lg:px-10">
-        <div className="flex flex-col justify-between gap-6 border-b border-white/10 pb-6 sm:flex-row sm:items-center">
-          <a href="#" className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-200/40 bg-gradient-to-br from-cyan-200 to-blue-500 text-xl font-black text-slate-950">
-              W
-            </span>
-            <span>
-              <span className="block text-xl font-black">
-                WICU<span className="text-cyan-300">.</span>
-              </span>
-              <span className="mt-0.5 block text-xs text-slate-200 sm:text-sm">
-                {siteConfig.brand.slogan}
-              </span>
-            </span>
-          </a>
-
-          <div className="flex flex-wrap gap-x-4 gap-y-3 text-sm font-semibold text-slate-300">
-            <a href="#categorias" className="hover:text-cyan-200">
-              Categorías
-            </a>
-            <a href="#productos" className="hover:text-cyan-200">
-              Productos
-            </a>
-            <a
-              href={`mailto:${siteConfig.brand.email}`}
-              className="inline-flex items-center gap-1.5 hover:text-cyan-200"
-            >
-              <Mail size={14} />
-              Contacto
-            </a>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs font-extrabold uppercase tracking-[0.12em] text-slate-200 sm:text-sm">
-            Síguenos en nuestras redes
-          </p>
-
-          <div className="flex flex-wrap gap-2">
-            {redes.map((red) => {
-              const Icono = red.icono;
-
-              return (
-                <a
-                  key={red.nombre}
-                  href={red.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={red.nombre}
-                  title={red.nombre}
-                  className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-200/35 hover:bg-cyan-300/[0.08] hover:text-cyan-100"
-                >
-                  <Icono size={15} />
-                  <span>{red.nombre}</span>
-                </a>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="flex flex-col items-center gap-2 border-t border-white/[0.11] pt-4 text-center text-[10px] text-slate-400 sm:flex-row sm:justify-center">
-          <p className="font-extrabold uppercase tracking-wider text-slate-300">
-            © {new Date().getFullYear()} WICU · TODOS LOS DERECHOS RESERVADOS
-          </p>
-          <p>Precios, disponibilidad y envío sujetos a confirmación.</p>
-        </div>
-      </footer>
+      <Footer />
 
       {carritoAbierto && (
         <div className="fixed inset-0 z-[100] flex justify-end">
@@ -1096,7 +1264,7 @@ export default function Home() {
             </div>
 
             {cantidadCarrito > 0 && (
-              <div className="border-t border-white/10 bg-[#0e1727] p-4 sm:p-5">
+              <div className="max-h-[55vh] shrink-0 overflow-y-auto border-t border-white/10 bg-[#0e1727] p-4 pb-6 sm:p-5">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs text-slate-300 sm:text-sm">
                     Subtotal de precios confirmados
@@ -1137,14 +1305,54 @@ export default function Home() {
                   </p>
                 </div>
 
+                <div className="mt-4 rounded-xl border border-cyan-300/20 bg-slate-950/50 p-4">
+                  <h3 className="mb-3 text-sm font-black text-cyan-200">
+                    Datos para tu pedido
+                  </h3>
+
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      value={datosCliente.nombre}
+                      onChange={(e) => setDatosCliente({ ...datosCliente, nombre: e.target.value })}
+                      placeholder="Nombre completo"
+                      className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none focus:border-cyan-300"
+                    />
+                    <input
+                      type="tel"
+                      value={datosCliente.celular}
+                      onChange={(e) => setDatosCliente({ ...datosCliente, celular: e.target.value })}
+                      placeholder="Celular de contacto"
+                      className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none focus:border-cyan-300"
+                    />
+                    <input
+                      type="text"
+                      value={datosCliente.ciudad}
+                      onChange={(e) => setDatosCliente({ ...datosCliente, ciudad: e.target.value })}
+                      placeholder="Ciudad"
+                      className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none focus:border-cyan-300"
+                    />
+                    <textarea
+                      value={datosCliente.direccion}
+                      onChange={(e) => setDatosCliente({ ...datosCliente, direccion: e.target.value })}
+                      placeholder="Dirección de entrega"
+                      rows={2}
+                      className="w-full resize-none rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none focus:border-cyan-300"
+                    />
+                  </div>
+                </div>
+
+                {errorPedido && (
+                  <p role="alert" className="mt-3 text-sm text-red-300">{errorPedido}</p>
+                )}
                 <button
                   type="button"
                   onClick={solicitarPedido}
-                  disabled={productosCarrito.length === 0}
+                  disabled={productosCarrito.length === 0 || pedidoEnviando}
                   className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-5 py-3.5 text-sm font-black text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <MessageCircle size={18} />
-                  Solicitar pedido por WhatsApp
+                  {pedidoEnviando ? "Registrando pedido..." : "Solicitar pedido por WhatsApp"}
                 </button>
 
                 <button

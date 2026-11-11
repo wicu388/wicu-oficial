@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.wicu-backup/
+/public/assets/imagenes copy*/
+/public/assets/imagenes/*
+!/public/assets/imagenes/wicu-logo-oficial-definitivo.png
